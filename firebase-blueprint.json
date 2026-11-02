@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "Book club member profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 50 },
+        "avatarColor": { "type": "string", "maxLength": 20 },
+        "bio": { "type": "string", "maxLength": 200 },
+        "isAdmin": { "type": "boolean" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "avatarColor"]
+    },
+    "CurrentRoundState": {
+      "title": "CurrentRoundState",
+      "description": "Active round state of the book club including candidates, progresses, reviews, comments",
+      "type": "object",
+      "properties": {
+        "roundNumber": { "type": "number" },
+        "status": { "type": "string", "enum": ["selection", "reading", "wrapup"] },
+        "selectedBook": { "type": "object" },
+        "selectedByMemberId": { "type": "string", "maxLength": 128 },
+        "selectedByMemberName": { "type": "string", "maxLength": 50 },
+        "selectedAt": { "type": "string", "maxLength": 64 },
+        "readingStartDate": { "type": "string", "maxLength": 64 },
+        "readingEndDate": { "type": "string", "maxLength": 64 },
+        "candidates": { "type": "array" },
+        "progresses": { "type": "object" },
+        "reviews": { "type": "array" },
+        "comments": { "type": "array" },
+        "coffeePenaltyWinners": { "type": "array" },
+        "coffeePenaltyDetermined": { "type": "boolean" },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["roundNumber", "status"]
+    },
+    "ArchivedRound": {
+      "title": "ArchivedRound",
+      "description": "Past meeting round historical archive",
+      "type": "object",
+      "properties": {
+        "roundNumber": { "type": "number" },
+        "selectedBook": { "type": "object" },
+        "selectedByMemberName": { "type": "string", "maxLength": 50 },
+        "readingStartDate": { "type": "string", "maxLength": 64 },
+        "readingEndDate": { "type": "string", "maxLength": 64 },
+        "averageRating": { "type": "number" },
+        "reviews": { "type": "array" },
+        "coffeePenaltyWinners": { "type": "array" },
+        "commentsCount": { "type": "number" },
+        "completedMembersCount": { "type": "number" },
+        "totalMembersCount": { "type": "number" },
+        "archivedAt": { "type": "string", "maxLength": 64 },
+        "notes": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["roundNumber", "selectedBook", "selectedByMemberName", "readingStartDate", "readingEndDate", "averageRating"]
+    }
+  },
+  "firestore": {
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Collection of club participants"
+    },
+    "/rounds/current": {
+      "schema": { "$ref": "#/entities/CurrentRoundState" },
+      "description": "The live synchronized current round state"
+    },
+    "/archive/{archiveId}": {
+      "schema": { "$ref": "#/entities/ArchivedRound" },
+      "description": "Collection of archived past rounds"
+    }
+  }
+}

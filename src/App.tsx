@@ -20,6 +20,18 @@ import {
   calculateReadingDates,
   resetAllDataToDefault,
 } from './utils/storage';
+import {
+  testFirestoreConnection,
+  subscribeToMembers,
+  subscribeToCurrentRound,
+  subscribeToArchive,
+  saveCurrentRoundToFirestore,
+  saveMemberToFirestore,
+  deleteMemberFromFirestore,
+  saveArchiveToFirestore,
+  deleteArchiveFromFirestore,
+  initializeFirestoreIfEmpty,
+} from './lib/firebase';
 import { Header, TabType } from './components/Header';
 import { HeroBanner } from './components/HeroBanner';
 import { Part1BookSelection } from './components/Part1BookSelection';
@@ -37,6 +49,9 @@ export default function App() {
   const [currentRound, setCurrentRound] = useState<CurrentRound>(getStoredCurrentRound);
   const [archive, setArchive] = useState<ArchivedRound[]>(getStoredArchive);
 
+  // Real-Time Sync State
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean>(true);
+
   // Active Tab: 'selection' (책선정) | 'reading' (독서현황) | 'reviews' (한줄평) | 'wrapup' (모임후기) | 'archive' (지난모임)
   const [currentTab, setCurrentTab] = useState<TabType>('selection');
 
@@ -45,7 +60,45 @@ export default function App() {
   const [isNewRoundModalOpen, setIsNewRoundModalOpen] = useState(false);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
 
-  // Sync state to local storage
+  // 1. Connection Test & Real-time status
+  useEffect(() => {
+    testFirestoreConnection().then((connected) => {
+      setIsLiveConnected(connected);
+    });
+  }, []);
+
+  // 2. Real-Time Subscriptions to Firestore Collections
+  useEffect(() => {
+    // Seed initial structure if empty
+    initializeFirestoreIfEmpty(getStoredMembers(), getStoredCurrentRound());
+
+    // Members Subscription
+    const unsubMembers = subscribeToMembers((remoteMembers) => {
+      if (remoteMembers && remoteMembers.length > 0) {
+        setMembers(remoteMembers);
+      }
+    });
+
+    // Current Round Subscription
+    const unsubRound = subscribeToCurrentRound((remoteRound) => {
+      if (remoteRound) {
+        setCurrentRound(remoteRound);
+      }
+    });
+
+    // Past Archive Subscription
+    const unsubArchive = subscribeToArchive((remoteArchive) => {
+      setArchive(remoteArchive);
+    });
+
+    return () => {
+      unsubMembers();
+      unsubRound();
+      unsubArchive();
+    };
+  }, []);
+
+  // Sync state to local storage fallback
   useEffect(() => {
     saveMembers(members);
   }, [members]);
@@ -63,10 +116,32 @@ export default function App() {
     setCurrentUserId(id);
   };
 
-  const currentMember = members.find((m) => m.id === currentMemberId) || members[0] || {
-    id: 'm1',
-    name: '김민수',
-    avatarColor: '#EA580C',
+  const currentMember =
+    members.find((m) => m.id === currentMemberId) ||
+    members[0] || {
+      id: 'm1',
+      name: '모임장',
+      avatarColor: '#EA580C',
+      isAdmin: true,
+    };
+
+  // Check if current user is admin
+  const isUserAdmin = !!currentMember.isAdmin;
+
+  // Real-time Firestore sync on every action without requiring login
+  const executeWithSync = async (
+    localUpdate: () => void,
+    remoteSync: () => Promise<void>
+  ) => {
+    // 1. Optimistic local update for instant snappy UI
+    localUpdate();
+
+    // 2. Direct cloud Firestore save (broadcasts to all other devices in real-time)
+    try {
+      await remoteSync();
+    } catch (err) {
+      console.error('Remote cloud sync error:', err);
+    }
   };
 
   // 1. Roulette Book Selection Confirmation
@@ -100,8 +175,13 @@ export default function App() {
       coffeePenaltyDetermined: false,
     };
 
-    setCurrentRound(updatedRound);
-    setCurrentTab('reading');
+    executeWithSync(
+      () => {
+        setCurrentRound(updatedRound);
+        setCurrentTab('reading');
+      },
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 2. Candidate Update / Nomination
@@ -117,21 +197,31 @@ export default function App() {
       updatedCandidates = [...currentRound.candidates, candidate];
     }
 
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       candidates: updatedCandidates,
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 3. Update Current Member's Reading Progress
   const handleUpdateMyProgress = (prog: MemberReadingProgress) => {
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       progresses: {
         ...currentRound.progresses,
         [prog.memberId]: prog,
       },
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 4. Add or Update Review
@@ -146,36 +236,56 @@ export default function App() {
       updatedReviews = [review, ...currentRound.reviews];
     }
 
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       reviews: updatedReviews,
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 5. Add Comment
   const handleAddComment = (comment: MeetingComment) => {
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       comments: [comment, ...currentRound.comments],
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   const handleLikeComment = (commentId: string) => {
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       comments: currentRound.comments.map((cm) =>
         cm.id === commentId ? { ...cm, likes: cm.likes + 1 } : cm
       ),
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 6. Set Coffee Winners
   const handleSetCoffeeWinners = (winners: string[]) => {
-    setCurrentRound({
+    const updatedRound: CurrentRound = {
       ...currentRound,
       coffeePenaltyWinners: winners,
       coffeePenaltyDetermined: winners.length > 0,
-    });
+    };
+
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
   };
 
   // 7. Transition to Next Round
@@ -209,8 +319,6 @@ export default function App() {
       archivedAt: new Date().toISOString(),
     };
 
-    setArchive([newArchivedItem, ...archive]);
-
     const nextCandidates: BookCandidate[] = currentRound.candidates
       .filter((c) => c.memberId !== currentRound.selectedBook?.memberId && keptCandidateMemberIds.includes(c.memberId))
       .map((c) => ({
@@ -235,26 +343,50 @@ export default function App() {
       coffeePenaltyDetermined: false,
     };
 
-    setCurrentRound(nextRound);
-    setCurrentTab('selection');
+    executeWithSync(
+      () => {
+        setArchive([newArchivedItem, ...archive]);
+        setCurrentRound(nextRound);
+        setCurrentTab('selection');
+      },
+      async () => {
+        await saveArchiveToFirestore(newArchivedItem);
+        await saveCurrentRoundToFirestore(nextRound);
+      }
+    );
   };
 
   // 8. Member Management (Add, Update, Delete)
   const handleAddMember = (newMem: Member) => {
-    setMembers([...members, newMem]);
-    handleSelectMember(newMem.id);
+    executeWithSync(
+      () => {
+        setMembers([...members, newMem]);
+        handleSelectMember(newMem.id);
+      },
+      () => saveMemberToFirestore(newMem)
+    );
   };
 
   const handleUpdateMember = (updated: Member) => {
-    setMembers(members.map((m) => (m.id === updated.id ? updated : m)));
+    executeWithSync(
+      () => {
+        setMembers(members.map((m) => (m.id === updated.id ? updated : m)));
+      },
+      () => saveMemberToFirestore(updated)
+    );
   };
 
   const handleDeleteMember = (memberId: string) => {
     const remaining = members.filter((m) => m.id !== memberId);
-    setMembers(remaining);
-    if (currentMemberId === memberId && remaining.length > 0) {
-      handleSelectMember(remaining[0].id);
-    }
+    executeWithSync(
+      () => {
+        setMembers(remaining);
+        if (currentMemberId === memberId && remaining.length > 0) {
+          handleSelectMember(remaining[0].id);
+        }
+      },
+      () => deleteMemberFromFirestore(memberId)
+    );
   };
 
   // 9. Past Archive Direct Management (Admin)
@@ -266,19 +398,29 @@ export default function App() {
     } else {
       updated = [round, ...archive].sort((a, b) => b.roundNumber - a.roundNumber);
     }
-    setArchive(updated);
+
+    executeWithSync(
+      () => setArchive(updated),
+      () => saveArchiveToFirestore(round)
+    );
   };
 
   const handleUpdateArchivedRound = (round: ArchivedRound) => {
-    setArchive(archive.map((r) => (r.roundNumber === round.roundNumber ? round : r)));
+    executeWithSync(
+      () => setArchive(archive.map((r) => (r.roundNumber === round.roundNumber ? round : r))),
+      () => saveArchiveToFirestore(round)
+    );
   };
 
   const handleDeleteArchivedRound = (roundNumber: number) => {
-    setArchive(archive.filter((r) => r.roundNumber !== roundNumber));
+    executeWithSync(
+      () => setArchive(archive.filter((r) => r.roundNumber !== roundNumber)),
+      () => deleteArchiveFromFirestore(roundNumber)
+    );
   };
 
   const handleResetData = () => {
-    if (window.confirm('모든 데이터를 초기 기본 샘플로 복원하시겠습니까?')) {
+    if (window.confirm('모든 데이터를 초기 기본 상태로 복원하시겠습니까?')) {
       resetAllDataToDefault();
       window.location.reload();
     }
@@ -286,7 +428,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-stone-900 flex flex-col font-sans">
-      {/* Header with Title and Menu button (목록 표시) */}
+      {/* Header with Title and Menu button (목록 표시) & Real-time Indicator */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -295,6 +437,7 @@ export default function App() {
         onSelectMember={handleSelectMember}
         onOpenMemberModal={() => setIsMemberModalOpen(true)}
         currentRoundNum={currentRound.roundNumber}
+        isLive={isLiveConnected}
       />
 
       {/* Main Viewport Container */}
@@ -352,7 +495,7 @@ export default function App() {
         {currentTab === 'archive' && (
           <PastRoundsArchive
             archive={archive}
-            isAdmin={!!currentMember.isAdmin}
+            isAdmin={isUserAdmin}
             onAddArchivedRound={handleAddArchivedRound}
             onUpdateArchivedRound={handleUpdateArchivedRound}
             onDeleteArchivedRound={handleDeleteArchivedRound}
@@ -368,6 +511,12 @@ export default function App() {
             <span className="font-extrabold text-orange-600">북치고 장구치고</span>
             <span aria-hidden="true">·</span>
             <span>우리들의 독서 모임</span>
+            {isLiveConnected && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-bold ml-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>실시간 연동 활성</span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -381,9 +530,9 @@ export default function App() {
             <button
               onClick={handleResetData}
               className="text-stone-400 hover:text-orange-600 transition-colors cursor-pointer"
-              title="데이터를 최초 샘플 상태로 초기화"
+              title="데이터를 최초 상태로 초기화"
             >
-              초기 샘플 데이터 복원
+              데이터 초기화
             </button>
           </div>
         </div>

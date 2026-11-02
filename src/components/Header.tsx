@@ -11,6 +11,7 @@ interface HeaderProps {
   onSelectMember: (id: string) => void;
   onOpenMemberModal: () => void;
   currentRoundNum: number;
+  isLive?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectMember,
   onOpenMemberModal,
   currentRoundNum,
+  isLive = true,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const currentMember = members.find((m) => m.id === currentMemberId) || members[0];
@@ -71,15 +73,29 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Right Section: Active Tab Badge, Member Selector, and Menu Button */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5">
+          {/* Right Section: Real-time Indicator, Member Selector, and Menu Button */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Real-time Cloud Sync Badge */}
+            {isLive ? (
+              <span className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="hidden sm:inline">실시간 연동</span>
+                <span className="sm:hidden text-[10px]">연동됨</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-stone-100 text-stone-500 border border-stone-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-stone-400" />
+                <span>오프라인</span>
+              </span>
+            )}
+
             {/* Current Member Dropdown */}
             <div className="flex items-center gap-1 bg-orange-50/80 border border-orange-200/80 rounded-xl px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs">
               <span
                 className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: currentMember?.avatarColor || '#F97316' }}
               />
-              <span className="text-stone-500 hidden md:inline text-[11px]">접속:</span>
+              <span className="text-stone-500 hidden md:inline text-[11px]">멤버:</span>
               {currentMember?.isAdmin && (
                 <span className="text-[10px] text-amber-600" title="관리자">👑</span>
               )}
@@ -100,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Menu Button ("목록 표시") */}
             <button
               onClick={() => setIsMenuOpen(true)}
-              className="min-h-[38px] sm:min-h-[42px] flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="min-h-[36px] sm:min-h-[40px] flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
               aria-label="메뉴 목록 열기"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -174,6 +190,19 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Menu Footer */}
             <div className="p-4 sm:p-5 border-t border-orange-100 bg-orange-50/30 space-y-2.5">
+              {/* Real-time sync badge card */}
+              <div className="flex items-center gap-2.5 p-2.5 bg-white border border-emerald-100 rounded-xl text-xs">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-bold text-stone-800 text-xs">
+                    {isLive ? '실시간 동기화 켜짐' : '오프라인 모드'}
+                  </div>
+                  <div className="text-[10px] text-stone-500">
+                    로그인 없이 모든 기기에서 즉시 공유됩니다
+                  </div>
+                </div>
+              </div>
+
               <button
                 onClick={() => {
                   setIsMenuOpen(false);
@@ -185,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>모임 멤버 관리 ({members.length}명)</span>
               </button>
               <div className="text-[11px] text-stone-500 text-center flex items-center justify-center gap-1">
-                <span>현재 접속:</span>
+                <span>현재 선택된 멤버:</span>
                 <strong className="text-stone-800">{currentMember.name}</strong>
                 {currentMember.isAdmin && (
                   <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded font-bold">

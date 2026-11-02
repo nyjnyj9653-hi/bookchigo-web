@@ -1,0 +1,49 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Connection test document
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 1. Members Collection (Open to club participants without login)
+    match /members/{memberId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(memberId) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 50;
+      allow delete: if isValidId(memberId);
+    }
+
+    // 2. Rounds Collection (Live Current Round)
+    match /rounds/{roundId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(roundId) &&
+        request.resource.data.roundNumber is number &&
+        request.resource.data.status in ['selection', 'reading', 'wrapup'];
+      allow delete: if isValidId(roundId);
+    }
+
+    // 3. Past Meeting Archive Collection
+    match /archive/{archiveId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(archiveId) &&
+        request.resource.data.roundNumber is number &&
+        request.resource.data.averageRating is number;
+      allow delete: if isValidId(archiveId);
+    }
+  }
+}
