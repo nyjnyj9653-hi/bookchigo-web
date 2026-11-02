@@ -1,0 +1,6 @@
+{
+  "name": "북치고 장구치고",
+  "description": "독서 책 선정 룰렛부터 2주간 독서 진행률 관리, 별점·한줄평 후기, 완독 미달자 커피 쏘기 이벤트까지 관리하는 독서모임 플랫폼",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
