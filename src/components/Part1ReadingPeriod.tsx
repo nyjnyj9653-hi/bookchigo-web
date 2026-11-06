@@ -5,6 +5,7 @@ import { CurrentRound, Member, MemberReadingProgress, ReadingState } from '../ty
 interface Part1ReadingPeriodProps {
   currentRound: CurrentRound;
   currentMember: Member;
+  members: Member[];
   onUpdateMyProgress: (progress: MemberReadingProgress) => void;
   onGoToReviews: () => void;
   onGoToCoffee: () => void;
@@ -13,6 +14,7 @@ interface Part1ReadingPeriodProps {
 export const Part1ReadingPeriod: React.FC<Part1ReadingPeriodProps> = ({
   currentRound,
   currentMember,
+  members,
   onUpdateMyProgress,
   onGoToReviews,
   onGoToCoffee,
@@ -54,8 +56,26 @@ export const Part1ReadingPeriod: React.FC<Part1ReadingPeriodProps> = ({
     dDayText = `기간 종료 (${Math.abs(diffDays)}일 지남)`;
   }
 
-  // Calculate Group Statistics
-  const progressesList = Object.values(currentRound.progresses);
+  // Calculate Group Statistics across ALL members (including those added mid-round)
+  const progressesList: MemberReadingProgress[] = members.map((m) => {
+    const existing = currentRound.progresses[m.id];
+    if (existing) {
+      return {
+        ...existing,
+        memberName: m.name, // Ensure latest name
+      };
+    }
+    return {
+      memberId: m.id,
+      memberName: m.name,
+      state: 'not_started' as ReadingState,
+      currentPage: 0,
+      totalPage: totalPages,
+      percentage: 0,
+      updatedAt: currentRound.selectedAt || new Date().toISOString(),
+    };
+  });
+
   const totalCount = progressesList.length;
   const completedCount = progressesList.filter((p) => p.state === 'completed').length;
   const readingCount = progressesList.filter((p) => p.state === 'reading').length;

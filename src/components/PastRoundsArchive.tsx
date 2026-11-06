@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArchivedRound, BookReview } from '../types';
 
 interface PastRoundsArchiveProps {
   archive: ArchivedRound[];
   isAdmin?: boolean;
+  currentRoundNumber: number;
+  onSetCurrentRoundNumber?: (newRoundNumber: number) => void;
   onAddArchivedRound?: (round: ArchivedRound) => void;
   onUpdateArchivedRound?: (round: ArchivedRound) => void;
   onDeleteArchivedRound?: (roundNumber: number) => void;
@@ -13,6 +15,8 @@ interface PastRoundsArchiveProps {
 export const PastRoundsArchive: React.FC<PastRoundsArchiveProps> = ({
   archive,
   isAdmin = false,
+  currentRoundNumber,
+  onSetCurrentRoundNumber,
   onAddArchivedRound,
   onUpdateArchivedRound,
   onDeleteArchivedRound,
@@ -20,6 +24,13 @@ export const PastRoundsArchive: React.FC<PastRoundsArchiveProps> = ({
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRoundNumber, setEditingRoundNumber] = useState<number | null>(null);
+
+  // Manual round adjustment state
+  const [targetRoundNumber, setTargetRoundNumber] = useState<number>(currentRoundNumber);
+
+  useEffect(() => {
+    setTargetRoundNumber(currentRoundNumber);
+  }, [currentRoundNumber]);
 
   // Form State
   const [formRoundNumber, setFormRoundNumber] = useState<number>(1);
@@ -183,6 +194,55 @@ export const PastRoundsArchive: React.FC<PastRoundsArchiveProps> = ({
             현재 모임으로 이동 →
           </button>
         </div>
+      </div>
+
+      {/* Current Ongoing Round Info & Admin Round Setting Card */}
+      <div className="bg-white border border-orange-200 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-orange-100 text-orange-700 flex items-center justify-center text-lg font-black shrink-0 border border-orange-200">
+            {currentRoundNumber}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-orange-600">현재 진행 중인 모임</span>
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-orange-100 text-orange-800">
+                제 {currentRoundNumber}회차 진행 중
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 mt-0.5">
+              지난 회차를 등록하면 현재 회차 번호가 자동으로 이어지며, 관리자는 직접 원하는 회차 번호로 설정할 수도 있습니다.
+            </p>
+          </div>
+        </div>
+
+        {isAdmin && onSetCurrentRoundNumber && (
+          <div className="flex items-center gap-2 self-start sm:self-auto bg-stone-50 border border-stone-200 px-3 py-2 rounded-xl shrink-0">
+            <span className="text-xs font-semibold text-stone-600 whitespace-nowrap">회차 번호 변경:</span>
+            <input
+              type="number"
+              min="1"
+              value={targetRoundNumber}
+              onChange={(e) => setTargetRoundNumber(Math.max(1, Number(e.target.value)))}
+              className="w-16 px-2 py-1 bg-white border border-stone-300 rounded-lg text-xs font-bold text-center focus:outline-none focus:ring-1 focus:ring-orange-500"
+              aria-label="회차 번호 직접 입력"
+            />
+            <button
+              onClick={() => {
+                if (targetRoundNumber > 0 && targetRoundNumber !== currentRoundNumber) {
+                  onSetCurrentRoundNumber(targetRoundNumber);
+                }
+              }}
+              disabled={targetRoundNumber === currentRoundNumber}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                targetRoundNumber !== currentRoundNumber
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                  : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+              }`}
+            >
+              적용
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Admin Notice Banner */}
@@ -368,9 +428,14 @@ export const PastRoundsArchive: React.FC<PastRoundsArchiveProps> = ({
                     required
                     value={formRoundNumber}
                     onChange={(e) => setFormRoundNumber(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-orange-500 font-bold"
                     placeholder="예: 1"
                   />
+                  {editingRoundNumber === null && formRoundNumber >= currentRoundNumber && (
+                    <span className="text-[10px] text-orange-600 block mt-1 font-semibold">
+                      💡 등록 후 현재 진행 회차가 자동으로 <strong>제 {formRoundNumber + 1}회차</strong>로 갱신됩니다.
+                    </span>
+                  )}
                 </div>
                 <div>
                   <label className="block font-bold text-stone-700 mb-1">책 추천자 *</label>

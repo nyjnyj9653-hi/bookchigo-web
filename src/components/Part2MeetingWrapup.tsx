@@ -25,11 +25,13 @@ export const Part2MeetingWrapup: React.FC<Part2MeetingWrapupProps> = ({
   const [commentInput, setCommentInput] = useState('');
   const [isDrawingCoffee, setIsDrawingCoffee] = useState(false);
 
-  // Identify who has NOT completed the book
-  const incompleteProgresses = Object.values(currentRound.progresses).filter(
-    (p) => p.state !== 'completed'
-  );
-  const incompleteMembers = incompleteProgresses.map((p) => p.memberName);
+  // Identify who has NOT completed the book across ALL members (including those added mid-round)
+  const incompleteMembers = allMembers
+    .filter((m) => {
+      const prog = currentRound.progresses[m.id];
+      return !prog || prog.state !== 'completed';
+    })
+    .map((m) => m.name);
 
   // Check coffee winners
   const coffeeWinners = currentRound.coffeePenaltyWinners || [];

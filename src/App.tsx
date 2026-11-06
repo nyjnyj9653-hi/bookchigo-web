@@ -89,6 +89,22 @@ export default function App() {
     // Past Archive Subscription
     const unsubArchive = subscribeToArchive((remoteArchive) => {
       setArchive(remoteArchive);
+      if (remoteArchive && remoteArchive.length > 0) {
+        const highestArchived = remoteArchive.reduce((max, r) => Math.max(max, r.roundNumber), 0);
+        setCurrentRound((prev) => {
+          if (prev && prev.roundNumber <= highestArchived) {
+            const bumped: CurrentRound = {
+              ...prev,
+              roundNumber: highestArchived + 1,
+            };
+            saveCurrentRoundToFirestore(bumped).catch((err) =>
+              console.error('Failed to bump round number from archive:', err)
+            );
+            return bumped;
+          }
+          return prev;
+        });
+      }
     });
 
     return () => {
@@ -110,6 +126,47 @@ export default function App() {
   useEffect(() => {
     saveArchive(archive);
   }, [archive]);
+
+  // Auto-reconcile members with currentRound.progresses
+  // Ensures that members added mid-round immediately have reading progress records
+  useEffect(() => {
+    if (members.length === 0) return;
+    const totalPages = currentRound.selectedBook?.pageCount || 280;
+    let hasDiff = false;
+    const mergedProgresses: Record<string, MemberReadingProgress> = { ...currentRound.progresses };
+
+    members.forEach((m) => {
+      if (!mergedProgresses[m.id]) {
+        mergedProgresses[m.id] = {
+          memberId: m.id,
+          memberName: m.name,
+          state: 'not_started',
+          currentPage: 0,
+          totalPage: totalPages,
+          percentage: 0,
+          updatedAt: currentRound.selectedAt || new Date().toISOString(),
+        };
+        hasDiff = true;
+      } else if (mergedProgresses[m.id].memberName !== m.name) {
+        mergedProgresses[m.id] = {
+          ...mergedProgresses[m.id],
+          memberName: m.name,
+        };
+        hasDiff = true;
+      }
+    });
+
+    if (hasDiff) {
+      const repairedRound: CurrentRound = {
+        ...currentRound,
+        progresses: mergedProgresses,
+      };
+      setCurrentRound(repairedRound);
+      saveCurrentRoundToFirestore(repairedRound).catch((err) =>
+        console.error('Failed to auto-sync progresses with members:', err)
+      );
+    }
+  }, [members, currentRound.selectedBook, currentRound.status]);
 
   const handleSelectMember = (id: string) => {
     setCurrentMemberIdState(id);
@@ -358,38 +415,109 @@ export default function App() {
 
   // 8. Member Management (Add, Update, Delete)
   const handleAddMember = (newMem: Member) => {
+    const totalPages = currentRound.selectedBook?.pageCount || 280;
+    const updatedProgresses: Record<string, MemberReadingProgress> = {
+      ...currentRound.progresses,
+      [newMem.id]: {
+        memberId: newMem.id,
+        memberName: newMem.name,
+        state: 'not_started',
+        currentPage: 0,
+        totalPage: totalPages,
+        percentage: 0,
+        updatedAt: currentRound.selectedAt || new Date().toISOString(),
+      },
+    };
+
+    const updatedRound: CurrentRound = {
+      ...currentRound,
+      progresses: updatedProgresses,
+    };
+
     executeWithSync(
       () => {
         setMembers([...members, newMem]);
+        setCurrentRound(updatedRound);
         handleSelectMember(newMem.id);
       },
-      () => saveMemberToFirestore(newMem)
+      async () => {
+        await saveMemberToFirestore(newMem);
+        await saveCurrentRoundToFirestore(updatedRound);
+      }
     );
   };
 
   const handleUpdateMember = (updated: Member) => {
+    let updatedRound = currentRound;
+    if (currentRound.progresses[updated.id]) {
+      updatedRound = {
+        ...currentRound,
+        progresses: {
+          ...currentRound.progresses,
+          [updated.id]: {
+            ...currentRound.progresses[updated.id],
+            memberName: updated.name,
+          },
+        },
+      };
+    }
+
     executeWithSync(
       () => {
         setMembers(members.map((m) => (m.id === updated.id ? updated : m)));
+        if (updatedRound !== currentRound) {
+          setCurrentRound(updatedRound);
+        }
       },
-      () => saveMemberToFirestore(updated)
+      async () => {
+        await saveMemberToFirestore(updated);
+        if (updatedRound !== currentRound) {
+          await saveCurrentRoundToFirestore(updatedRound);
+        }
+      }
     );
   };
 
   const handleDeleteMember = (memberId: string) => {
     const remaining = members.filter((m) => m.id !== memberId);
+    const updatedProgresses = { ...currentRound.progresses };
+    delete updatedProgresses[memberId];
+
+    const updatedRound: CurrentRound = {
+      ...currentRound,
+      progresses: updatedProgresses,
+      candidates: currentRound.candidates.filter((c) => c.memberId !== memberId),
+    };
+
     executeWithSync(
       () => {
         setMembers(remaining);
+        setCurrentRound(updatedRound);
         if (currentMemberId === memberId && remaining.length > 0) {
           handleSelectMember(remaining[0].id);
         }
       },
-      () => deleteMemberFromFirestore(memberId)
+      async () => {
+        await deleteMemberFromFirestore(memberId);
+        await saveCurrentRoundToFirestore(updatedRound);
+      }
     );
   };
 
-  // 9. Past Archive Direct Management (Admin)
+  // 9. Direct Round Number Control (Admin)
+  const handleSetCurrentRoundNumber = (newRoundNumber: number) => {
+    if (newRoundNumber <= 0 || newRoundNumber === currentRound.roundNumber) return;
+    const updatedRound: CurrentRound = {
+      ...currentRound,
+      roundNumber: newRoundNumber,
+    };
+    executeWithSync(
+      () => setCurrentRound(updatedRound),
+      () => saveCurrentRoundToFirestore(updatedRound)
+    );
+  };
+
+  // 10. Past Archive Direct Management (Admin)
   const handleAddArchivedRound = (round: ArchivedRound) => {
     const exists = archive.some((r) => r.roundNumber === round.roundNumber);
     let updated: ArchivedRound[];
@@ -399,9 +527,29 @@ export default function App() {
       updated = [round, ...archive].sort((a, b) => b.roundNumber - a.roundNumber);
     }
 
+    // Auto-advance current round number if added archive round is >= current round
+    const highestArchived = updated.reduce((max, r) => Math.max(max, r.roundNumber), 0);
+    let updatedRound = currentRound;
+    if (currentRound.roundNumber <= highestArchived) {
+      updatedRound = {
+        ...currentRound,
+        roundNumber: highestArchived + 1,
+      };
+    }
+
     executeWithSync(
-      () => setArchive(updated),
-      () => saveArchiveToFirestore(round)
+      () => {
+        setArchive(updated);
+        if (updatedRound !== currentRound) {
+          setCurrentRound(updatedRound);
+        }
+      },
+      async () => {
+        await saveArchiveToFirestore(round);
+        if (updatedRound !== currentRound) {
+          await saveCurrentRoundToFirestore(updatedRound);
+        }
+      }
     );
   };
 
@@ -464,6 +612,7 @@ export default function App() {
           <Part1ReadingPeriod
             currentRound={currentRound}
             currentMember={currentMember}
+            members={members}
             onUpdateMyProgress={handleUpdateMyProgress}
             onGoToReviews={() => setCurrentTab('reviews')}
             onGoToCoffee={() => setCurrentTab('wrapup')}
@@ -496,6 +645,8 @@ export default function App() {
           <PastRoundsArchive
             archive={archive}
             isAdmin={isUserAdmin}
+            currentRoundNumber={currentRound.roundNumber}
+            onSetCurrentRoundNumber={handleSetCurrentRoundNumber}
             onAddArchivedRound={handleAddArchivedRound}
             onUpdateArchivedRound={handleUpdateArchivedRound}
             onDeleteArchivedRound={handleDeleteArchivedRound}
